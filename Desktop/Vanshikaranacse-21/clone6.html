@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flappy Bird Clone</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to bottom, #87CEEB, #f0f8ff);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    header {
+      width: 100%;
+      padding: 20px;
+      text-align: center;
+      font-size: 32px;
+      font-weight: bold;
+      background: linear-gradient(90deg, #ffcc00, #ff69b4, #87cefa);
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      border-bottom: 4px solid #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header span {
+      font-size: 36px;
+    }
+    .container {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-around;
+      align-items: flex-start;
+      width: 90%;
+      margin-top: 20px;
+    }
+    .rules {
+      flex: 1;
+      background: #fff8dc;
+      padding: 20px;
+      margin-right: 20px;
+      border: 2px dashed #333;
+      border-radius: 10px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .rules h2 {
+      margin-top: 0;
+      text-align: center;
+      color: #333;
+    }
+    .game {
+      flex: 2;
+      position: relative;
+      height: 400px;
+      background: #cceeff;
+      border: 3px solid #333;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .bird {
+      position: absolute;
+      top: 150px;
+      left: 50px;
+      width: 40px;
+      height: 40px;
+      background: yellow;
+      border-radius: 50%;
+      border: 2px solid #333;
+      animation: flap 1s infinite alternate;
+    }
+
+    @keyframes flap {
+      from { transform: translateY(0); }
+      to { transform: translateY(-40px); }
+    }
+    .pipe {
+      position: absolute;
+      width: 60px;
+      background: green;
+      border: 2px solid #333;
+      animation: movePipe 6s linear infinite;
+    }
+
+    .pipe.top {
+      height: 120px;
+      top: 0;
+    }
+
+    .pipe.bottom {
+      height: 180px;
+      bottom: 0;
+    }
+
+    @keyframes movePipe {
+      from { right: -60px; }
+      to { right: 100%; }
+    }
+    .trial {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.8);
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: bold;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .start {
+      margin-top: 20px;
+      background: #ffebcd;
+      padding: 15px 30px;
+      border-radius: 10px;
+      border: 2px solid #333;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); background: #ffebcd; }
+      50% { transform: scale(1.05); background: #ffe4b5; }
+      100% { transform: scale(1); background: #ffebcd; }
+    }
+    .features {
+      margin-top: 30px;
+      width: 90%;
+      background: #fdf5e6;
+      border: 2px solid #333;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .features h2 {
+      margin-top: 0;
+      font-size: 22px;
+      color: #333;
+    }
+
+    .features ul {
+      list-style: none;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    .features li {
+      margin: 8px 0;
+    }
+    
+
+  .pictures {
+    margin-top: 30px;
+    width: 90%;
+    background: #f0fff0;
+    border: 2px solid #333;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .pictures h2 {
+    border: #333;
+    margin-top: 0;
+    font-size: 22px;
+    color: #333;
+    text-decoration-color: #fdf5e6;
+  }
+
+  .gallery {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+  }
+
+  .gallery img {
+    width: 350px;
+    height: auto;
+    border: 2px solid #333;
+    border-radius: 8px;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+    transition: transform 0.3s;
+  }
+
+  .gallery img:hover {
+    transform: scale(1.1);
+  }
+</style>
+
+</head>
+<body>
+  <header>
+    <span>  <img  src="https://toppng.com/uploads/preview/flappy-bird-bird-11549936945ijemgm9pvp.png" height="50px" width="50px"> </span> Flappy Bird <span>🌈✨</span>
+  </header>
+
+  <div class="start">Press Start in Real Game — Here’s a Demo!</div>
+
+  <div class="container">
+    <div class="rules">
+      <h2>📜 Rules</h2>
+      <p>1. Press <b>Space</b> to flap the bird.</p>
+      <p>2. Avoid hitting the pipes.</p>
+      <p>3. Each pass through pipes = +1 point.</p>
+      <p>4. Game ends when bird touches pipe or ground.</p>
+      <p><i>This demo shows trial animation only.</i></p>
+    </div>
+
+    <div class="game">
+     <img class="bird" src="https://toppng.com/uploads/preview/flappy-bird-bird-11549936945ijemgm9pvp.png"> 
+      <div class="pipe top"></div>
+      <div class="pipe bottom"></div>
+      <div class="trial">Trial Mode: Demo Animation</div>
+    </div>
+  </div>
+
+  
+  <div class="pictures"> <h2>🖼️ Game Snapshots</h2> <div class="gallery">
+     <img src="https://img-c.udemycdn.com/course/480x270/283781_88d0_3.jpg" alt="Bird flying through pipes">
+     <img src="https://i.ytimg.com/vi/eCpQdOijkV0/maxresdefault.jpg" alt="Game Over screen"> 
+     <img src="https://live.staticflickr.com/7318/12333466294_c0e83ab611_z.jpg" alt="High score achieved"> </div> </div>
+  <div class="features">
+    <h2>🌟 Interesting Features of Flappy Bird 🌟</h2>
+    <ul>
+      <li>🐤 Simple yet addictive gameplay</li>
+      <li>🎮 Easy controls — just one button!</li>
+      <li>🌍 Compete with friends for high scores</li>
+      <li>💡 Teaches patience and timing skills</li>
+      <li>✨ Fun design with endless replay value</li>
+    </ul>
+  </div>
+
+
+</body>
+</html>
