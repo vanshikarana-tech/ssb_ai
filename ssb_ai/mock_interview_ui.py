@@ -94,10 +94,30 @@ def _init_session() -> None:
             st.session_state[key] = val
 
 
+def _get_api_key() -> str:
+    """
+    Reads GEMINI_API_KEY from st.secrets (Streamlit Cloud) or falls back to
+    a mock/demo mode. No database, no token, no username required.
+    """
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        return ""
+
+
 def _get_controller() -> SSBInterviewController:
     if "mi_controller" not in st.session_state:
         from google import genai as _genai
-        client = _genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        api_key = _get_api_key()
+        if not api_key:
+            st.error(
+                "**GEMINI_API_KEY not found.**\n\n"
+                "Go to **Streamlit Cloud → App Settings → Secrets** and add:\n\n"
+                "```toml\nGEMINI_API_KEY = \"your_key_here\"\n```\n\n"
+                "Get a free key at https://aistudio.google.com/app/apikey"
+            )
+            st.stop()
+        client = _genai.Client(api_key=api_key)
         st.session_state["mi_controller"] = SSBInterviewController(client)
     return st.session_state["mi_controller"]
 

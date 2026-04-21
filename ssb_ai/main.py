@@ -24,7 +24,17 @@ def load_whisper_model():
 
 @st.cache_resource
 def load_gemini_client():
-    return genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except (KeyError, FileNotFoundError):
+        st.error(
+            "**GEMINI_API_KEY not found.**\n\n"
+            "Go to **Streamlit Cloud → App Settings → Secrets** and add:\n\n"
+            "```toml\nGEMINI_API_KEY = \"your_key_here\"\n```\n\n"
+            "Get a free key at https://aistudio.google.com/app/apikey"
+        )
+        st.stop()
+    return genai.Client(api_key=api_key)
 
 model_whisper = load_whisper_model()
 gemini_client = load_gemini_client()

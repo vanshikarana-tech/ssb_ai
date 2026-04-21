@@ -5,3 +5,7 @@ enableXsrfProtection = false
 
 [theme]
 base = "dark"
+
+# Disable Streamlit's built-in database connection UI prompts
+[client]
+showErrorDetails = false
