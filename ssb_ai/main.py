@@ -282,10 +282,26 @@ def get_feedback(candidate_response: str, mode: str, extra_context: str = "") ->
 import tempfile
 
 def transcribe_audio(audio_bytes) -> str:
-    """Transcribes audio using Whisper. Uses a secure temp file that is always cleaned up."""
+    """
+    Transcribes audio using Whisper.
+    Accepts either an UploadedFile (from st.audio_input) or a BytesIO object.
+    Uses a secure temp file that is always cleaned up.
+    """
+    # st.audio_input returns an UploadedFile — use .read(), not .getbuffer()
+    if hasattr(audio_bytes, "read"):
+        raw = audio_bytes.read()
+    elif hasattr(audio_bytes, "getbuffer"):
+        raw = bytes(audio_bytes.getbuffer())
+    else:
+        raw = bytes(audio_bytes)
+
+    if not raw:
+        raise ValueError("Audio buffer is empty — nothing was recorded.")
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp.write(audio_bytes.getbuffer())
+        tmp.write(raw)
         tmp_path = tmp.name
+
     try:
         result = model_whisper.transcribe(tmp_path, fp16=False, language="en")
     finally:
@@ -406,14 +422,26 @@ with tab_voice:
 
     if audio_input:
         st.audio(audio_input)
-        with st.spinner("Converting speech to text..."):
-            try:
-                spoken_text = transcribe_audio(audio_input)
-                st.success("Transcription complete!")
-                st.info(f"**What you said:** {spoken_text}")
-                st.session_state["spoken_text"] = spoken_text
-            except Exception as e:
-                st.error(f"Transcription error: {e}")
+        # Debug: confirm bytes reached Python backend
+        audio_input.seek(0)
+        byte_size = len(audio_input.read())
+        audio_input.seek(0)
+        st.caption(f"✅ Audio captured — {byte_size:,} bytes received by server.")
+
+        if byte_size < 1000:
+            st.warning("Recording seems too short. Please speak for at least 2 seconds.")
+        else:
+            with st.spinner("Converting speech to text..."):
+                try:
+                    spoken_text = transcribe_audio(audio_input)
+                    if spoken_text:
+                        st.success("Transcription complete!")
+                        st.info(f"**What you said:** {spoken_text}")
+                        st.session_state["spoken_text"] = spoken_text
+                    else:
+                        st.warning("Transcription returned empty. Try speaking more clearly.")
+                except Exception as e:
+                    st.error(f"Transcription error: {e}")
 
     if st.button("🔍 Evaluate Spoken Response", key="eval_voice"):
         spoken = st.session_state.get("spoken_text", "").strip()

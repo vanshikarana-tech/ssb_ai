@@ -70,11 +70,31 @@ _BRIDGE_HTML = f"""
 
   window.addEventListener('message', (event) => {{
     if (!event.data || typeof event.data !== 'object') return;
-    if (event.data.type === 'ssb_transcript')  injectValue(event.data.transcript || '');
+
+    if (event.data.type === 'ssb_transcript') {{
+      // Inject into textarea AND store in sessionStorage so it survives rerenders
+      const t = event.data.transcript || '';
+      injectValue(t);
+      sessionStorage.setItem('ssb_last_transcript', t);
+    }}
+
     if (event.data.type === 'ssb_auto_submit') {{
-      injectValue(event.data.transcript || '');
+      const t = event.data.transcript || '';
+      injectValue(t);
+      sessionStorage.setItem('ssb_last_transcript', t);
       setTimeout(clickSubmit, 120);
     }}
+  }});
+
+  // On page load, restore transcript from sessionStorage if textarea is empty
+  window.addEventListener('load', () => {{
+    setTimeout(() => {{
+      const saved = sessionStorage.getItem('ssb_last_transcript');
+      if (saved) {{
+        const ta = findTextarea();
+        if (ta && !ta.value.trim()) injectValue(saved);
+      }}
+    }}, 500);
   }});
 }})();
 </script>
@@ -286,8 +306,18 @@ def _render_interview_screen(
     col_submit, col_abort = st.columns([3, 1])
     with col_submit:
         if st.button("Submit Answer", type="primary", use_container_width=True, key="mi_submit_text"):
-            final = answer_text.strip() or st.session_state.get("mi_voice_transcript", "").strip()
-            _handle_submit(final, session, controller)
+            # Priority: typed text → session_state voice transcript → empty warning
+            final = (
+                answer_text.strip()
+                or st.session_state.get("mi_voice_transcript", "").strip()
+            )
+            if not final:
+                st.warning(
+                    "No answer detected. If you used voice, the transcript may not have "
+                    "synced — please type your answer or try speaking again."
+                )
+            else:
+                _handle_submit(final, session, controller)
     with col_abort:
         if st.button("End Interview", use_container_width=True, key="mi_abort"):
             _abort_interview(controller, rm)
