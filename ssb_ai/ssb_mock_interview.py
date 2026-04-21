@@ -44,14 +44,20 @@ Gemini calls, retrying on 429 and 503 only.
 
 from __future__ import annotations
 
+import logging
 import random
 import re
-import time
 from dataclasses import dataclass, field
 from typing import Optional
 
 from google import genai
 from google.genai import types
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+)
 
 from ssb_question_bank import (
     DifficultyLevel,
@@ -62,18 +68,27 @@ from ssb_question_bank import (
     MIN_SUBSTANTIVE_WORDS,
 )
 
+logger = logging.getLogger(__name__)
+
 # ─── Constants ────────────────────────────────────────────────────────────────
-MAX_RETRIES         = 5
-INITIAL_DELAY_SEC   = 1.0
-JITTER_MAX_SEC      = 0.5
 GEMINI_MODEL        = "gemini-2.5-flash"
 SESSION_LENGTH      = 10      # questions per session before evaluation
+MAX_ATTEMPTS        = 10      # tenacity retry attempts
+MAX_WAIT_SEC        = 10      # cap per-attempt wait (seconds)
 
 # Cross-questioning constants
-WARMUP_COUNT        = 3       # first N questions are warm-up (no cross-questioning)
-HISTORY_WINDOW      = 4       # number of recent Q-A turns sent as chat history
-CROSS_Q_MIN_WORDS   = 25      # minimum answer words to attempt a cross-question
-CROSS_Q_FALLBACK    = "FALLBACK"   # sentinel Gemini returns when no hook found
+WARMUP_COUNT        = 3
+HISTORY_WINDOW      = 4
+CROSS_Q_MIN_WORDS   = 25
+CROSS_Q_FALLBACK    = "FALLBACK"
+
+# ─── Retry helpers ────────────────────────────────────────────────────────────
+def _is_retryable_error(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return any(k in s for k in (
+        "429", "503", "resource_exhausted", "quota",
+        "service_unavailable", "overloaded",
+    ))
 
 
 # ─── Data Models ──────────────────────────────────────────────────────────────
@@ -200,21 +215,34 @@ class InterviewSession:
     answer_start_time: float                 = 0.0
 
 
-# ─── Backoff Helpers ──────────────────────────────────────────────────────────
-def _is_retryable(err: str) -> bool:
-    return any(k in err for k in (
+# ─── Tenacity-powered Gemini caller ──────────────────────────────────────────
+def _is_retryable_error(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return any(k in s for k in (
         "429", "503", "resource_exhausted", "quota",
         "service_unavailable", "overloaded",
     ))
 
 
-def _backoff_delay(attempt: int) -> float:
-    return min(INITIAL_DELAY_SEC * (2 ** (attempt - 1)), 32.0) + random.uniform(0, JITTER_MAX_SEC)
-
-
 def _call_gemini(client: genai.Client, system_instruction: str, user_prompt: str) -> str:
-    last_error = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    """
+    Calls Gemini with tenacity retry logic.
+      - 10 attempts, exponential backoff + jitter, capped at 10 s per wait
+      - Only retries on 429 / 503
+      - Logs error code to terminal on every failure
+      - Raises RuntimeError with a friendly message after all attempts exhausted
+    """
+    attempt_counter = {"n": 0}
+
+    @retry(
+        stop=stop_after_attempt(MAX_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=1, max=MAX_WAIT_SEC, jitter=1),
+        retry=retry_if_exception(_is_retryable_error),
+        reraise=True,
+    )
+    def _inner() -> str:
+        attempt_counter["n"] += 1
+        n = attempt_counter["n"]
         try:
             result = client.models.generate_content(
                 model=GEMINI_MODEL,
@@ -226,18 +254,26 @@ def _call_gemini(client: genai.Client, system_instruction: str, user_prompt: str
             )
             return result.text.strip()
         except Exception as e:
-            last_error = e
-            err = str(e).lower()
-            if _is_retryable(err) and attempt < MAX_RETRIES:
-                time.sleep(_backoff_delay(attempt))
-                continue
-            elif _is_retryable(err):
-                raise RuntimeError(
-                    f"API unavailable after {MAX_RETRIES} attempts. Please wait."
-                ) from e
-            else:
-                raise RuntimeError(f"Gemini API error: {e}") from e
-    raise RuntimeError(f"All retries exhausted. Last error: {last_error}")
+            err_str = str(e)
+            code = "429" if "429" in err_str else ("503" if "503" in err_str else "unknown")
+            logger.error(
+                "Gemini API error on attempt %d/%d — code: %s — %s",
+                n, MAX_ATTEMPTS, code, err_str[:200],
+            )
+            raise
+
+    try:
+        return _inner()
+    except Exception as e:
+        err_str = str(e)
+        code = "429" if "429" in err_str else ("503" if "503" in err_str else "unknown")
+        logger.error(
+            "All %d attempts exhausted in _call_gemini. Final error code: %s — %s",
+            MAX_ATTEMPTS, code, err_str[:300],
+        )
+        raise RuntimeError(
+            "Service is busy — please try again in a moment."
+        ) from e
 
 
 # ─── System Prompts ───────────────────────────────────────────────────────────

@@ -3,19 +3,58 @@ from google import genai
 from google.genai import types
 import whisper
 import os
-import time
 import random
+import logging
+
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+    RetryError,
+    before_sleep_call,
+)
+
+# ─── Logging (errors visible in terminal / Streamlit Cloud logs) ─────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # ─── Page Config ────────────────────────────────────────────────────────────
 st.set_page_config(page_title="SSB Preparation Assistant", page_icon="🎖️")
 
 # ─── Model Configuration ─────────────────────────────────────────────────────
-# gemini-2.5-flash: latest flash model, higher quota than 2.0-flash
-GEMINI_MODEL        = "gemini-2.5-flash"
-MAX_RETRIES         = 5    # Maximum number of retry attempts
-INITIAL_DELAY_SEC   = 1.0  # Base delay in seconds (doubles each retry)
-JITTER_MAX_SEC      = 0.5  # Max random jitter added to each delay
-RETRYABLE_CODES     = {"429", "503"}  # Status codes that trigger a retry
+GEMINI_MODEL    = "gemini-2.5-flash"
+MAX_ATTEMPTS    = 10   # total attempts before giving up
+MAX_WAIT_SEC    = 10   # cap per-attempt wait so user never waits > 10 s
+RETRYABLE_CODES = {"429", "503"}
+
+# ─── Dynamic status messages shown to the user during retries ────────────────
+_RETRY_MESSAGES = {
+    1:  "Analyzing your response...",
+    2:  "Still analyzing, please wait...",
+    3:  "Connecting to AI assessor...",
+    4:  "Taking a moment longer than usual...",
+    5:  "Still working on it — almost there...",
+    6:  "The service is a bit busy right now...",
+    7:  "Holding on, retrying the connection...",
+    8:  "Almost there, connection is a bit slow...",
+    9:  "One more try...",
+    10: "Final attempt...",
+}
+
+def _retry_msg(attempt: int) -> str:
+    return _RETRY_MESSAGES.get(attempt, "Processing...")
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Returns True for 429 (quota) and 503 (unavailable) errors only."""
+    s = str(exc).lower()
+    return any(k in s for k in (
+        "429", "503", "resource_exhausted", "quota",
+        "service_unavailable", "overloaded",
+    ))
 
 # ─── Load Models (cached — load once, reuse across interactions) ─────────────
 @st.cache_resource
@@ -181,66 +220,48 @@ def get_random_situation() -> str:
     st.session_state["current_situation"] = situation
     return situation
 
-# ─── Exponential Backoff Helper ───────────────────────────────────────────────
-def _is_retryable(error_str: str) -> bool:
-    """Returns True if the error string indicates a retryable status (429 or 503)."""
-    return (
-        "429" in error_str
-        or "503" in error_str
-        or "resource_exhausted" in error_str
-        or "quota" in error_str
-        or "service_unavailable" in error_str
-        or "overloaded" in error_str
-    )
-
-def _backoff_delay(attempt: int) -> float:
-    """
-    Computes exponential backoff delay with random jitter.
-
-    Formula: min(INITIAL_DELAY * 2^(attempt-1), 32s) + uniform(0, JITTER_MAX)
-
-    Args:
-        attempt: Current attempt number (1-indexed).
-
-    Returns:
-        Seconds to sleep before the next retry.
-    """
-    delay = INITIAL_DELAY_SEC * (2 ** (attempt - 1))   # 1, 2, 4, 8, 16 …
-    delay = min(delay, 32.0)                            # cap at 32 seconds
-    jitter = random.uniform(0, JITTER_MAX_SEC)          # add small random variation
-    return delay + jitter
-
 # ─── Core AI Function ─────────────────────────────────────────────────────────
 def get_feedback(candidate_response: str, mode: str, extra_context: str = "") -> str:
     """
-    Sends candidate input to Gemini with the module-specific system instruction.
-    Implements exponential backoff with jitter on 429 (quota) and 503 (unavailable).
+    Sends candidate input to Gemini with tenacity-powered retry logic.
 
-    Retry schedule (before jitter):
-        Attempt 1 → wait 1s → Attempt 2 → wait 2s → Attempt 3 → wait 4s →
-        Attempt 4 → wait 8s → Attempt 5 → wait 16s → give up
-
-    Args:
-        candidate_response: The user's typed or transcribed answer.
-        mode:               Active practice module name.
-        extra_context:      Optional prefix (e.g., SRT situation text).
-
-    Returns:
-        AI feedback as a clean string ready for display.
-
-    Raises:
-        RuntimeError: If all retries are exhausted or a non-retryable error occurs.
+    Retry policy:
+      - 10 attempts total
+      - wait_exponential_jitter: starts ~1 s, doubles each attempt, capped at 10 s
+      - Only retries on 429 / 503 (quota / unavailable)
+      - Dynamic Streamlit status message updates on each retry
+      - Logs error code to terminal on every failed attempt
+      - Shows friendly 'Network Timeout' button after all attempts exhausted
     """
-    system_instruction = MODULE_SYSTEM_INSTRUCTIONS.get(mode, MODULE_SYSTEM_INSTRUCTIONS["Personal Interview"])
-
-    # Build the user-facing prompt
+    system_instruction = MODULE_SYSTEM_INSTRUCTIONS.get(
+        mode, MODULE_SYSTEM_INSTRUCTIONS["Personal Interview"]
+    )
     if extra_context:
         user_prompt = f"{extra_context}\n\nCandidate's Response:\n\"\"\"{candidate_response}\"\"\""
     else:
         user_prompt = f"Candidate's Response:\n\"\"\"{candidate_response}\"\"\""
 
-    last_error = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    # Mutable attempt counter accessible inside the nested function
+    attempt_counter = {"n": 0}
+    status_placeholder = st.empty()
+
+    @retry(
+        stop=stop_after_attempt(MAX_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=1, max=MAX_WAIT_SEC, jitter=1),
+        retry=retry_if_exception(_is_retryable_error),
+        reraise=True,
+    )
+    def _call() -> str:
+        attempt_counter["n"] += 1
+        n = attempt_counter["n"]
+        msg = _retry_msg(n)
+
+        # Update Streamlit spinner message dynamically
+        if n == 1:
+            status_placeholder.info(f"⏳ {msg}")
+        else:
+            status_placeholder.warning(f"⏳ Attempt {n}/{MAX_ATTEMPTS}: {msg}")
+
         try:
             result = gemini_client.models.generate_content(
                 model=GEMINI_MODEL,
@@ -250,33 +271,36 @@ def get_feedback(candidate_response: str, mode: str, extra_context: str = "") ->
                     temperature=0.7,
                 ),
             )
-            # Return clean string — strip leading/trailing whitespace
+            status_placeholder.empty()
             return result.text.strip()
 
         except Exception as e:
-            last_error = e
-            error_str = str(e).lower()
+            # Log error code to terminal on every failure
+            err_str = str(e)
+            code = "429" if "429" in err_str else ("503" if "503" in err_str else "unknown")
+            logger.error(
+                "Gemini API error on attempt %d/%d — code: %s — %s",
+                n, MAX_ATTEMPTS, code, err_str[:200],
+            )
+            raise  # let tenacity decide whether to retry
 
-            if _is_retryable(error_str):
-                if attempt < MAX_RETRIES:
-                    wait = _backoff_delay(attempt)
-                    st.warning(
-                        f"⏳ API temporarily unavailable (attempt {attempt}/{MAX_RETRIES}). "
-                        f"Retrying in {wait:.1f}s…"
-                    )
-                    time.sleep(wait)
-                    continue
-                else:
-                    raise RuntimeError(
-                        f"API unavailable after {MAX_RETRIES} attempts (429/503). "
-                        "Please wait a moment and try again, or check your quota at "
-                        "https://aistudio.google.com"
-                    ) from e
-            else:
-                # Non-retryable error — fail immediately
-                raise RuntimeError(f"Gemini API error: {e}") from e
+    try:
+        return _call()
+    except Exception as e:
+        status_placeholder.empty()
+        err_str = str(e)
+        code = "429" if "429" in err_str else ("503" if "503" in err_str else "unknown")
+        logger.error("All %d attempts exhausted. Final error code: %s — %s", MAX_ATTEMPTS, code, err_str[:300])
 
-    raise RuntimeError(f"All {MAX_RETRIES} retries exhausted. Last error: {last_error}")
+        # Friendly UI — no raw error shown to user
+        st.error(
+            "**Service is busy — Network Timeout.**\n\n"
+            "The AI assessor couldn't be reached after several attempts. "
+            "This is usually a temporary quota issue."
+        )
+        if st.button("🔄 Try Again", key=f"retry_btn_{random.randint(0, 99999)}"):
+            st.rerun()
+        st.stop()
 
 # ─── Audio Transcription ──────────────────────────────────────────────────────
 import tempfile

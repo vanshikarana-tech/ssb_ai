@@ -1,3 +1,4 @@
 streamlit==1.56.0
 google-genai==1.73.1
 openai-whisper==20250625
+tenacity==9.1.4
