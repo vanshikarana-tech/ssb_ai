@@ -1,0 +1,33 @@
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ─── Virtual environments ─────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env
+
+# ─── Whisper model cache ──────────────────────────────────────────────────────
+# Whisper downloads model weights to ~/.cache/whisper — no need to commit them
+*.pt
+
+# ─── Temp audio files ────────────────────────────────────────────────────────
+*.wav
+*.webm
+
+# ─── OS / editor ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

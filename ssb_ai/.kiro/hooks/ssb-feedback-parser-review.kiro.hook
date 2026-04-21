@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "SSB Feedback Parser Code Review",
+  "description": "Triggers an AI code review whenever the feedback parsing logic in main.py is edited, verifying that all 11 SSB Officer Like Qualities are still covered and the structured feedback format (Strengths → Improvements → Motivational Note) remains intact.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "main.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The SSB feedback parsing logic has been modified. Please perform a focused code review to verify:\n\n1. **OLQ Coverage**: Confirm all 11 Officer Like Qualities are still referenced in the SYSTEM_PROMPT:\n   - Effective Intelligence, Reasoning Ability, Power of Expression, Social Adaptability, Cooperation, Sense of Responsibility, Initiative, Self-Confidence, Speed of Decision Making, Ability to Influence Group, Liveliness\n\n2. **Feedback Format Integrity**: Confirm the structured output format is preserved:\n   - ✅ STRENGTHS section header\n   - 🔧 IMPROVEMENTS section header\n   - 💡 MOTIVATIONAL NOTE section header\n\n3. **Parser Correctness**: If a `parse_feedback()` or `extract_section()` function exists, verify:\n   - It handles missing section headers gracefully (no exceptions)\n   - It preserves the raw response in a fallback field\n   - It correctly extracts content between section boundaries\n\n4. **Fallback Safety**: Confirm the UI never crashes on malformed Gemini output.\n\nReport any violations clearly with the specific line numbers and suggested fixes."
+  }
+}
