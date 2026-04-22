@@ -1,7 +1,6 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-import whisper
 import os
 import random
 import logging
@@ -57,7 +56,11 @@ def _is_retryable_error(exc: Exception) -> bool:
 # ─── Load Models (cached — load once, reuse across interactions) ─────────────
 @st.cache_resource
 def load_whisper_model():
-    return whisper.load_model("base")
+    try:
+        import whisper
+        return whisper.load_model("base")
+    except ImportError:
+        return None
 
 @st.cache_resource
 def load_gemini_client():
@@ -73,7 +76,6 @@ def load_gemini_client():
         st.stop()
     return genai.Client(api_key=api_key)
 
-model_whisper = load_whisper_model()
 gemini_client = load_gemini_client()
 
 # ─── Module-Specific System Instructions ─────────────────────────────────────
@@ -305,11 +307,15 @@ import tempfile
 
 def transcribe_audio(audio_bytes) -> str:
     """
-    Transcribes audio using Whisper.
+    Transcribes audio using Whisper (loaded lazily on first use).
     Accepts either an UploadedFile (from st.audio_input) or a BytesIO object.
-    Uses a secure temp file that is always cleaned up.
     """
-    # st.audio_input returns an UploadedFile — use .read(), not .getbuffer()
+    model_whisper = load_whisper_model()
+    if model_whisper is None:
+        raise RuntimeError(
+            "Whisper is not installed. Run: pip install openai-whisper"
+        )
+
     if hasattr(audio_bytes, "read"):
         raw = audio_bytes.read()
     elif hasattr(audio_bytes, "getbuffer"):
