@@ -11,8 +11,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential_jitter,
     retry_if_exception,
-    RetryError,
-    before_sleep_call,
 )
 
 # ─── Logging (errors visible in terminal / Streamlit Cloud logs) ─────────────

@@ -47,6 +47,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -81,15 +82,6 @@ WARMUP_COUNT        = 3
 HISTORY_WINDOW      = 4
 CROSS_Q_MIN_WORDS   = 25
 CROSS_Q_FALLBACK    = "FALLBACK"
-
-# ─── Retry helpers ────────────────────────────────────────────────────────────
-def _is_retryable_error(exc: Exception) -> bool:
-    s = str(exc).lower()
-    return any(k in s for k in (
-        "429", "503", "resource_exhausted", "quota",
-        "service_unavailable", "overloaded",
-    ))
-
 
 # ─── Data Models ──────────────────────────────────────────────────────────────
 @dataclass
