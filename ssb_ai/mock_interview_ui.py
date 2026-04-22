@@ -495,19 +495,37 @@ def _handle_submit(
         st.warning("Please provide an answer — type it or use the voice panel.")
         return
 
-    with st.spinner("The Interviewing Officer is reviewing your answer..."):
-        try:
-            updated = controller.submit_answer(session, answer.strip())
-            if updated.records:
-                st.session_state["mi_last_evaluation"] = updated.records[-1].evaluation
-            _store_session(updated)
-            if _ANSWER_KEY in st.session_state:
-                del st.session_state[_ANSWER_KEY]
-            st.rerun()
-        except ValueError as e:
-            st.warning(str(e))
-        except RuntimeError as e:
-            st.error(str(e))
+    # Show a visible status placeholder so the user knows something is happening
+    status = st.empty()
+    status.info("⏳ Submitting your answer to the Interviewing Officer...")
+
+    try:
+        updated = controller.submit_answer(session, answer.strip())
+        status.empty()
+        if updated.records:
+            st.session_state["mi_last_evaluation"] = updated.records[-1].evaluation
+        _store_session(updated)
+        if _ANSWER_KEY in st.session_state:
+            del st.session_state[_ANSWER_KEY]
+        st.rerun()
+    except ValueError as e:
+        status.empty()
+        st.warning(str(e))
+    except RuntimeError as e:
+        status.empty()
+        err = str(e)
+        if "busy" in err.lower() or "timeout" in err.lower() or "attempt" in err.lower():
+            st.error(
+                "**Service is busy — could not evaluate your answer.**\n\n"
+                "Please wait a moment and click Submit again."
+            )
+            if st.button("🔄 Retry Submit", key="retry_submit"):
+                st.rerun()
+        else:
+            st.error(f"Error: {err}")
+    except Exception as e:
+        status.empty()
+        st.error(f"Unexpected error: {e}")
 
 
 def _abort_interview(controller: SSBInterviewController, rm: RecordingManager) -> None:

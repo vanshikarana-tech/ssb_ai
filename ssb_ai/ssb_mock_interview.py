@@ -48,6 +48,7 @@ import logging
 import random
 import re
 import time
+import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -76,6 +77,7 @@ GEMINI_MODEL        = "gemini-2.5-flash"
 SESSION_LENGTH      = 10      # questions per session before evaluation
 MAX_ATTEMPTS        = 10      # tenacity retry attempts
 MAX_WAIT_SEC        = 10      # cap per-attempt wait (seconds)
+CALL_TIMEOUT_SEC    = 30      # hard timeout per individual Gemini call
 
 # Cross-questioning constants
 WARMUP_COUNT        = 3
@@ -236,14 +238,23 @@ def _call_gemini(client: genai.Client, system_instruction: str, user_prompt: str
         attempt_counter["n"] += 1
         n = attempt_counter["n"]
         try:
-            result = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.65,
-                ),
-            )
+            # Hard per-call timeout — prevents indefinite hang
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    client.models.generate_content,
+                    model=GEMINI_MODEL,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.65,
+                    ),
+                )
+                try:
+                    result = future.result(timeout=CALL_TIMEOUT_SEC)
+                except concurrent.futures.TimeoutError:
+                    raise RuntimeError(
+                        f"503 Gemini call timed out after {CALL_TIMEOUT_SEC}s"
+                    )
             return result.text.strip()
         except Exception as e:
             err_str = str(e)
