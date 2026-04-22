@@ -317,7 +317,7 @@ def _render_interview_screen(
                     "synced — please type your answer or try speaking again."
                 )
             else:
-                _handle_submit(final, session, controller)
+                _handle_submit(final, controller)
     with col_abort:
         if st.button("End Interview", use_container_width=True, key="mi_abort"):
             _abort_interview(controller, rm)
@@ -488,14 +488,16 @@ def _render_complete_screen(
 # ─── Shared Handlers ──────────────────────────────────────────────────────────
 def _handle_submit(
     answer:     str,
-    session:    InterviewSession,
     controller: SSBInterviewController,
 ) -> None:
+    """Always reads session fresh from st.session_state to avoid stale reference."""
     if not answer.strip():
         st.warning("Please provide an answer — type it or use the voice panel.")
         return
 
-    # Show a visible status placeholder so the user knows something is happening
+    # Read session fresh — never use a captured reference from render time
+    session: InterviewSession = st.session_state["mi_session"]
+
     status = st.empty()
     status.info("⏳ Submitting your answer to the Interviewing Officer...")
 
